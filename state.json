@@ -1,0 +1,7 @@
+{
+    "status": "ERROR",
+    "progress": 100,
+    "logs": "\n====================\nSTEP 0\n====================\n\nFATAL ERROR:\nFailed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download",
+    "best_result": {},
+    "submission_file": null
+}

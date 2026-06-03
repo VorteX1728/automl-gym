@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>AutoML Gym</title>
+
+<style>
+
+*{
+    box-sizing:border-box;
+    margin:0;
+    padding:0;
+}
+
+body{
+    font-family:
+        Inter,
+        Segoe UI,
+        Arial,
+        sans-serif;
+
+    background:#0f172a;
+    color:#e2e8f0;
+
+    max-width:1200px;
+    margin:0 auto;
+    padding:40px;
+}
+
+.header{
+    margin-bottom:30px;
+}
+
+.header h1{
+    font-size:42px;
+    margin-bottom:8px;
+}
+
+.header p{
+    color:#94a3b8;
+    font-size:16px;
+}
+
+.layout{
+    display:grid;
+    grid-template-columns:360px 1fr;
+    gap:20px;
+    align-items:start;
+}
+
+.card{
+    background:#1e293b;
+    border:1px solid #334155;
+    border-radius:18px;
+    padding:22px;
+    margin-bottom:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.25);
+}
+
+.card h2{
+    font-size:22px;
+    margin-bottom:16px;
+}
+
+label{
+    display:block;
+    margin-bottom:6px;
+    color:#cbd5e1;
+    font-size:14px;
+}
+
+input,
+select,
+textarea{
+    width:100%;
+    padding:12px 14px;
+    margin-bottom:16px;
+
+    background:#0f172a;
+    color:#e2e8f0;
+
+    border:1px solid #475569;
+    border-radius:12px;
+
+    font-size:14px;
+}
+
+textarea{
+    min-height:110px;
+    resize:vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+    outline:none;
+    border-color:#3b82f6;
+}
+
+button{
+    width:100%;
+
+    background:#2563eb;
+    color:white;
+
+    border:none;
+    border-radius:14px;
+
+    padding:14px 20px;
+
+    font-size:16px;
+    font-weight:600;
+
+    cursor:pointer;
+
+    transition:0.2s;
+}
+
+button:hover{
+    background:#1d4ed8;
+}
+
+.status-box{
+    display:flex;
+    justify-content:space-between;
+    gap:20px;
+    align-items:center;
+}
+
+#status{
+    font-size:20px;
+    font-weight:700;
+}
+
+.status-muted{
+    color:#94a3b8;
+    font-size:14px;
+}
+
+.progress-wrap{
+    width:100%;
+    background:#0f172a;
+    border:1px solid #334155;
+    border-radius:999px;
+    overflow:hidden;
+    height:28px;
+    margin-top:16px;
+}
+
+#progress-bar{
+    width:0%;
+    height:100%;
+    background:linear-gradient(
+        90deg,
+        #2563eb,
+        #38bdf8
+    );
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    color:white;
+    font-size:13px;
+    font-weight:700;
+
+    transition:width 0.3s;
+}
+
+.metric-grid{
+    display:grid;
+    grid-template-columns:repeat(
+        auto-fit,
+        minmax(190px,1fr)
+    );
+    gap:14px;
+}
+
+.metric-box{
+    background:#0f172a;
+    border:1px solid #334155;
+    border-radius:14px;
+    padding:16px;
+}
+
+.metric-title{
+    color:#94a3b8;
+    font-size:13px;
+    margin-bottom:8px;
+}
+
+.metric-value{
+    font-size:22px;
+    font-weight:800;
+    word-break:break-word;
+}
+
+.metric-small{
+    font-size:15px;
+    color:#cbd5e1;
+}
+
+.logs{
+    background:#020617;
+    border:1px solid #334155;
+    border-radius:14px;
+    padding:16px;
+
+    min-height:300px;
+    max-height:520px;
+
+    overflow:auto;
+
+    white-space:pre-wrap;
+    color:#d1d5db;
+    font-family:
+        Consolas,
+        Monaco,
+        monospace;
+
+    font-size:13px;
+}
+
+.download-card{
+    display:none;
+}
+
+.download-link{
+    display:inline-block;
+
+    background:#16a34a;
+    color:white;
+
+    text-decoration:none;
+
+    padding:12px 18px;
+
+    border-radius:12px;
+
+    font-weight:700;
+}
+
+.download-link:hover{
+    background:#15803d;
+}
+
+.error{
+    color:#f87171;
+}
+
+.success{
+    color:#4ade80;
+}
+
+@media(max-width:900px){
+    .layout{
+        grid-template-columns:1fr;
+    }
+
+    body{
+        padding:20px;
+    }
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="header">
+    <h1>AutoML Gym</h1>
+    <p>
+        LLM-agent dashboard for controlled tabular AutoML experiments
+    </p>
+</div>
+
+<div class="layout">
+
+    <div>
+
+        <div class="card">
+
+            <h2>Run Settings</h2>
+
+            <form id="uploadForm">
+
+                <label>
+                    Train CSV
+                </label>
+
+                <input
+                    type="file"
+                    name="file"
+                    required
+                >
+
+                <label>
+                    Test CSV for submission
+                </label>
+
+                <input
+                    type="file"
+                    name="test_file"
+                >
+
+                <label>
+                    Target column
+                </label>
+
+                <input
+                    type="text"
+                    name="target"
+                    placeholder="target"
+                    required
+                >
+
+                <label>
+                    Comment for agent
+                </label>
+
+                <textarea
+                    name="comment"
+                    placeholder="Use fast models, avoid overfitting..."
+                ></textarea>
+
+                <label>
+                    Steps
+                </label>
+
+                <input
+                    type="number"
+                    name="steps"
+                    value="5"
+                    min="1"
+                    max="50"
+                >
+
+                <label>
+                    LLM model
+                </label>
+
+                <select name="llm_model">
+
+                    <option>
+                        deepseek-r1:7b
+                    </option>
+
+                    <option>
+                        qwen2.5-coder:7b
+                    </option>
+
+                    <option>
+                        deepseek-coder-v2:16b
+                    </option>
+
+                    <option>
+                        codestral
+                    </option>
+
+                </select>
+
+                <label>
+                    Metric
+                </label>
+
+                <select name="metric">
+
+                    <option>
+                        roc_auc
+                    </option>
+
+                    <option>
+                        accuracy
+                    </option>
+
+                    <option>
+                        f1
+                    </option>
+
+                    <option>
+                        precision
+                    </option>
+
+                    <option>
+                        recall
+                    </option>
+
+                    <option>
+                        mse
+                    </option>
+
+                    <option>
+                        rmse
+                    </option>
+
+                    <option>
+                        mae
+                    </option>
+
+                </select>
+
+                <button type="submit">
+                    Start AutoML
+                </button>
+
+            </form>
+
+        </div>
+
+        <div class="card">
+
+            <h2>Available ML Models</h2>
+
+            <div class="metric-grid">
+
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Gradient Boosting
+                    </div>
+                    <div class="metric-value metric-small">
+                        xgboost
+                    </div>
+                </div>
+
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Gradient Boosting
+                    </div>
+                    <div class="metric-value metric-small">
+                        lightgbm
+                    </div>
+                </div>
+
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Gradient Boosting
+                    </div>
+                    <div class="metric-value metric-small">
+                        catboost
+                    </div>
+                </div>
+
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Baseline
+                    </div>
+                    <div class="metric-value metric-small">
+                        random_forest
+                    </div>
+                </div>
+
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Baseline
+                    </div>
+                    <div class="metric-value metric-small">
+                        hist_gb
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div>
+
+        <div class="card">
+
+            <div class="status-box">
+
+                <div>
+
+                    <div class="status-muted">
+                        Current status
+                    </div>
+
+                    <div id="status">
+                        Waiting
+                    </div>
+
+                </div>
+
+                <div>
+
+                    <div class="status-muted">
+                        Progress
+                    </div>
+
+                    <div id="progress-label">
+                        0%
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="progress-wrap">
+
+                <div id="progress-bar">
+                    0%
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <h2>Best Candidate</h2>
+
+            <div
+                id="best_result"
+                class="metric-grid"
+            >
+
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Status
+                    </div>
+
+                    <div class="metric-value metric-small">
+                        No successful model yet
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+        <div
+            id="download-card"
+            class="card download-card"
+        >
+
+            <h2>Submission</h2>
+
+            <div id="download"></div>
+
+        </div>
+
+        <div class="card">
+
+            <h2>Logs</h2>
+
+            <pre
+                id="logs"
+                class="logs"
+            ></pre>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+let polling = null;
+
+function safeNumber(value, digits = 4){
+
+    if(
+        value === null ||
+        value === undefined ||
+        isNaN(Number(value))
+    ){
+        return "-";
+    }
+
+    return Number(value).toFixed(digits);
+}
+
+function renderBestResult(result){
+
+    const container =
+        document.getElementById(
+            "best_result"
+        );
+
+    if(
+        !result ||
+        Object.keys(result).length === 0
+    ){
+        container.innerHTML = `
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Status
+                </div>
+
+                <div class="metric-value metric-small">
+                    No successful model yet
+                </div>
+            </div>
+        `;
+
+        return;
+    }
+
+    const checklist = result.checklist || {};
+    const checklistSummary = checklist.summary || {};
+    const checklistFeedback = checklist.agent_feedback || [];
+
+    const feedbackText = checklistFeedback.length
+        ? checklistFeedback.join("; ")
+        : "-";
+
+    container.innerHTML = `
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Best Model
+            </div>
+
+            <div class="metric-value">
+                ${result.best_model || "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Candidate ID
+            </div>
+
+            <div class="metric-value">
+                ${result.candidate_id ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Metric
+            </div>
+
+            <div class="metric-value metric-small">
+                ${result.metric || "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Validation Score
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.val_score, 5)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Objective Value
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.objective_value, 5)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Reward
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.reward, 4)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Train Score
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.train_score, 5)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Overfit Gap
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.overfit_gap, 5)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                CV Std
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.cv_std, 5)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Training Time
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.training_time_sec, 2)}s
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Compute Cost
+            </div>
+
+            <div class="metric-value">
+                ${safeNumber(result.total_compute_cost, 2)}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Tokens Used
+            </div>
+
+            <div class="metric-value">
+                ${result.total_token_cost ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Tokens Left
+            </div>
+
+            <div class="metric-value">
+                ${result.remaining_tokens ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Token Budget
+            </div>
+
+            <div class="metric-value">
+                ${result.token_budget ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Rows
+            </div>
+
+            <div class="metric-value">
+                ${result.num_rows ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Features
+            </div>
+
+            <div class="metric-value">
+                ${result.num_features ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Checklist Passed
+            </div>
+
+            <div class="metric-value">
+                ${checklistSummary.passed ?? "-"}/${checklistSummary.total ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box">
+            <div class="metric-title">
+                Checklist Warnings
+            </div>
+
+            <div class="metric-value">
+                ${checklistSummary.warnings ?? "-"}
+            </div>
+        </div>
+
+        <div class="metric-box" style="grid-column:1 / -1;">
+            <div class="metric-title">
+                Feedback For Next Step
+            </div>
+
+            <div class="metric-value metric-small">
+                ${feedbackText}
+            </div>
+        </div>
+    `;
+}
+
+document
+.getElementById(
+    "uploadForm"
+)
+.addEventListener(
+    "submit",
+    async function(event){
+
+        event.preventDefault();
+
+        document
+        .getElementById(
+            "download-card"
+        ).style.display = "none";
+
+        document
+        .getElementById(
+            "download"
+        ).innerHTML = "";
+
+        document
+        .getElementById(
+            "logs"
+        ).innerText = "";
+
+        renderBestResult({});
+
+        document
+        .getElementById(
+            "status"
+        ).innerText = "Starting";
+
+        document
+        .getElementById(
+            "status"
+        ).className = "";
+
+        updateProgress(0);
+
+        const formData =
+            new FormData(this);
+
+        const response =
+            await fetch(
+                "/start",
+                {
+                    method:"POST",
+                    body:formData
+                }
+            );
+
+       if(!response.ok){
+
+            const data =
+                await response.json();
+
+            document
+            .getElementById(
+                "status"
+            ).innerText =
+                data.message || "ERROR: cannot start run";
+
+            document
+            .getElementById(
+                "status"
+            ).className =
+                "error";
+
+            return;
+        }
+
+        if(polling){
+            clearInterval(polling);
+        }
+
+        polling = setInterval(
+            fetchState,
+            1500
+        );
+
+        fetchState();
+    }
+);
+
+function updateProgress(progress){
+
+    const value =
+        Number(progress || 0);
+
+    const bar =
+        document.getElementById(
+            "progress-bar"
+        );
+
+    bar.style.width =
+        value + "%";
+
+    bar.innerText =
+        value + "%";
+
+    document
+    .getElementById(
+        "progress-label"
+    ).innerText =
+        value + "%";
+}
+
+async function fetchState(){
+
+    const response =
+        await fetch("/state");
+
+    const data =
+        await response.json();
+
+    const status =
+        data.status || "idle";
+
+    document
+    .getElementById(
+        "status"
+    ).innerText = status;
+
+    updateProgress(
+        data.progress || 0
+    );
+
+    document
+    .getElementById(
+        "logs"
+    ).innerText =
+        data.logs || "";
+
+    renderBestResult(
+        data.best_result || {}
+    );
+
+    if(
+        status === "FINISHED" &&
+        data.submission_file
+    ){
+        document
+        .getElementById(
+            "status"
+        ).innerText =
+            "Finished";
+
+        document
+        .getElementById(
+            "status"
+        ).className =
+            "success";
+
+        document
+        .getElementById(
+            "download-card"
+        ).style.display =
+            "block";
+
+        document
+        .getElementById(
+            "download"
+        ).innerHTML = `
+
+            <a
+                class="download-link"
+                href="/download/${data.submission_file}"
+            >
+                Download Submission
+            </a>
+        `;
+
+        clearInterval(polling);
+    }
+
+    if(status === "ERROR"){
+
+        document
+        .getElementById(
+            "status"
+        ).className =
+            "error";
+
+        clearInterval(polling);
+    }
+}
+
+</script>
+
+</body>
+
+</html>
