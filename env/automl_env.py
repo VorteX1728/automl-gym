@@ -193,26 +193,7 @@ class AutoMLEnv:
 
     def _remove_leakage(self, df):
 
-        leakage_columns = [
-            "tower_status_radiant",
-            "tower_status_dire",
-            "barracks_status_radiant",
-            "barracks_status_dire"
-        ]
-
-        existing = [
-            column
-            for column in leakage_columns
-            if column in df.columns
-            and column != self.target_column
-        ]
-
-        self.leakage_columns_removed = existing
-
-        if existing:
-            return df.drop(
-                columns=existing
-            )
+        self.leakage_columns_removed = []
 
         return df
 

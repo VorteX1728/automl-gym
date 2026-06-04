@@ -46,6 +46,7 @@ def load_state():
             "progress": 0,
             "logs": "",
             "best_result": {},
+            "run_stats": {},
             "submission_file": None,
             "is_running": False
         }
@@ -54,6 +55,9 @@ def load_state():
         data = json.load(f)
 
     data["is_running"] = is_running()
+
+    if "run_stats" not in data:
+        data["run_stats"] = {}
 
     return data
 
@@ -149,6 +153,21 @@ JSON format:
     }}
 }}
 """
+
+
+def make_run_stats(result, env, step):
+    return {
+        "total_compute_cost": result.get("total_compute_cost"),
+        "compute_cost": result.get("compute_cost"),
+        "remaining_budget": result.get("remaining_budget"),
+        "total_token_cost": result.get("total_token_cost"),
+        "remaining_tokens": result.get("remaining_tokens"),
+        "token_budget": result.get("token_budget"),
+        "current_step": step,
+        "total_candidates": len(env.candidates)
+    }
+
+
 def run_automl(
     train_path,
     test_path,
@@ -168,6 +187,7 @@ def run_automl(
             "progress": 0,
             "logs": "",
             "best_result": {},
+            "run_stats": {},
             "submission_file": None,
             "is_running": True
         })
@@ -184,6 +204,7 @@ def run_automl(
 
         best_objective = -float("inf")
         best_result = {}
+        run_stats = {}
 
         for step in range(steps):
             progress = int((step / max(steps, 1)) * 90)
@@ -197,6 +218,7 @@ def run_automl(
                 "progress": progress,
                 "logs": logs,
                 "best_result": best_result,
+                "run_stats": run_stats,
                 "submission_file": None,
                 "is_running": True
             })
@@ -225,11 +247,18 @@ def run_automl(
                 "progress": min(progress + 5, 95),
                 "logs": logs,
                 "best_result": best_result,
+                "run_stats": run_stats,
                 "submission_file": None,
                 "is_running": True
             })
 
             result = env.step(action)
+
+            run_stats = make_run_stats(
+                result=result,
+                env=env,
+                step=step
+            )
 
             logs += "\nRESULT:\n"
             logs += json.dumps(
@@ -241,6 +270,15 @@ def run_automl(
 
             if result.get("budget_exhausted"):
                 logs += "\nBudget exhausted. Stopping.\n"
+                save_state({
+                    "status": f"Step {step}: budget exhausted",
+                    "progress": int(((step + 1) / max(steps, 1)) * 90),
+                    "logs": logs,
+                    "best_result": best_result,
+                    "run_stats": run_stats,
+                    "submission_file": None,
+                    "is_running": True
+                })
                 break
 
             if result.get("success"):
@@ -257,6 +295,7 @@ def run_automl(
                 "progress": int(((step + 1) / max(steps, 1)) * 90),
                 "logs": logs,
                 "best_result": best_result,
+                "run_stats": run_stats,
                 "submission_file": None,
                 "is_running": True
             })
@@ -268,6 +307,7 @@ def run_automl(
             "progress": 95,
             "logs": logs,
             "best_result": best_result,
+            "run_stats": run_stats,
             "submission_file": None,
             "is_running": True
         })
@@ -302,6 +342,7 @@ def run_automl(
             "progress": 100,
             "logs": logs,
             "best_result": best_result,
+            "run_stats": run_stats,
             "submission_file": submission_filename,
             "is_running": False
         })
@@ -315,6 +356,7 @@ def run_automl(
             "progress": 100,
             "logs": logs,
             "best_result": {},
+            "run_stats": {},
             "submission_file": None,
             "is_running": False
         })

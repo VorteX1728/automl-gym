@@ -172,18 +172,53 @@ button:hover{
 
 .metric-grid{
     display:grid;
-    grid-template-columns:repeat(
-        auto-fit,
-        minmax(190px,1fr)
-    );
-    gap:14px;
+    grid-template-columns:
+        repeat(auto-fit,minmax(220px,1fr));
+    gap:16px;
+    align-items:start;
+}
+
+.metric-grid-wide{
+    display:grid;
+    grid-template-columns:
+        repeat(auto-fit,minmax(240px,1fr));
+    gap:16px;
+    margin-bottom:24px;
+}
+
+.metric-grid-small{
+    display:grid;
+    grid-template-columns:
+        repeat(auto-fit,minmax(180px,1fr));
+    gap:16px;
+    margin-bottom:24px;
+}
+
+.best-result{
+    display:block;
+    width:100%;
+}
+
+.best-result .section-title{
+    display:block;
+    width:100%;
+    clear:both;
+}
+
+.best-result .metric-grid-wide,
+.best-result .metric-grid-small{
+    width:100%;
 }
 
 .metric-box{
-    background:#0f172a;
-    border:1px solid #334155;
-    border-radius:14px;
-    padding:16px;
+    background:#0b1535;
+    border-radius:12px;
+    padding:14px;
+    min-height:92px;
+    box-sizing:border-box;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
 }
 
 .metric-title{
@@ -201,6 +236,22 @@ button:hover{
 .metric-small{
     font-size:15px;
     color:#cbd5e1;
+    overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+.section-title{
+    margin-top:24px;
+    margin-bottom:12px;
+
+    font-size:18px;
+    font-weight:700;
+
+    color:#cbd5e1;
+}
+
+.section-title:first-child{
+    margin-top:0;
 }
 
 .logs{
@@ -286,7 +337,7 @@ button:hover{
 
             <h2>Run Settings</h2>
 
-            <form id="uploadForm">
+            <form id="uploadForm" enctype="multipart/form-data">
 
                 <label>
                     Train CSV
@@ -516,7 +567,7 @@ button:hover{
 
             <div
                 id="best_result"
-                class="metric-grid"
+                class="best-result"
             >
 
                 <div class="metric-box">
@@ -576,7 +627,7 @@ function safeNumber(value, digits = 4){
     return Number(value).toFixed(digits);
 }
 
-function renderBestResult(result){
+function renderBestResult(result, runStats = {}){
 
     const container =
         document.getElementById(
@@ -603,291 +654,269 @@ function renderBestResult(result){
         return;
     }
 
-    const checklist = result.checklist || {};
-    const checklistSummary = checklist.summary || {};
-    const checklistFeedback = checklist.agent_feedback || [];
+    const checklist =
+        result.checklist || {};
 
-    const feedbackText = checklistFeedback.length
-        ? checklistFeedback.join("; ")
-        : "-";
+    const checklistSummary =
+        checklist.summary || {};
 
     container.innerHTML = `
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Best Model
-            </div>
-
-            <div class="metric-value">
-                ${result.best_model || "-"}
-            </div>
+        <div class="section-title">
+            Best Candidate
         </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Candidate ID
+        <div class="metric-grid-wide">
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Best Model
+                </div>
+
+                <div class="metric-value">
+                    ${result.best_model || "-"}
+                </div>
             </div>
 
-            <div class="metric-value">
-                ${result.candidate_id ?? "-"}
+            <div class="metric-box">
+                <div class="metric-title">
+                    Candidate ID
+                </div>
+
+                <div class="metric-value">
+                    ${result.candidate_id ?? "-"}
+                </div>
             </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Metric
+                </div>
+
+                <div class="metric-value metric-small">
+                    ${result.metric || "-"}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Validation Score
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.val_score, 5)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Objective Value
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.objective_value, 5)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Reward
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.reward, 4)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Train Score
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.train_score, 5)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Overfit Gap
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.overfit_gap, 5)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    CV Std
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.cv_std, 5)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Best Model Training Time
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(result.training_time_sec, 2)}s
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Checklist Passed
+                </div>
+
+                <div class="metric-value">
+                    ${
+                        checklistSummary.passed !== undefined
+                        && checklistSummary.total !== undefined
+                        ? checklistSummary.passed + "/" + checklistSummary.total
+                        : "-"
+                    }
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Checklist Warnings
+                </div>
+
+                <div class="metric-value">
+                    ${checklistSummary.warnings ?? "-"}
+                </div>
+            </div>
+
         </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Metric
-            </div>
-
-            <div class="metric-value metric-small">
-                ${result.metric || "-"}
-            </div>
+        <div class="section-title">
+            Agent Training
         </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Validation Score
+        <div class="metric-grid-small">
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Total Compute Cost
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(runStats.total_compute_cost, 2)}
+                </div>
             </div>
 
-            <div class="metric-value">
-                ${safeNumber(result.val_score, 5)}
+            <div class="metric-box">
+                <div class="metric-title">
+                    Current Compute Cost
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(runStats.compute_cost, 2)}
+                </div>
             </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Remaining Compute Budget
+                </div>
+
+                <div class="metric-value">
+                    ${safeNumber(runStats.remaining_budget, 2)}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Tokens Used
+                </div>
+
+                <div class="metric-value">
+                    ${runStats.total_token_cost ?? "-"}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Tokens Left
+                </div>
+
+                <div class="metric-value">
+                    ${runStats.remaining_tokens ?? "-"}
+                </div>
+            </div>
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Token Budget
+                </div>
+
+                <div class="metric-value">
+                    ${runStats.token_budget ?? "-"}
+                </div>
+            </div>
+
         </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Objective Value
-            </div>
-
-            <div class="metric-value">
-                ${safeNumber(result.objective_value, 5)}
-            </div>
+        <div class="section-title">
+            Dataset
         </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Reward
+        <div class="metric-grid-small">
+
+            <div class="metric-box">
+                <div class="metric-title">
+                    Rows
+                </div>
+
+                <div class="metric-value">
+                    ${result.num_rows ?? "-"}
+                </div>
             </div>
 
-            <div class="metric-value">
-                ${safeNumber(result.reward, 4)}
-            </div>
-        </div>
+            <div class="metric-box">
+                <div class="metric-title">
+                    Features
+                </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Train Score
-            </div>
-
-            <div class="metric-value">
-                ${safeNumber(result.train_score, 5)}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Overfit Gap
+                <div class="metric-value">
+                    ${result.num_features ?? "-"}
+                </div>
             </div>
 
-            <div class="metric-value">
-                ${safeNumber(result.overfit_gap, 5)}
-            </div>
-        </div>
+            <div class="metric-box">
+                <div class="metric-title">
+                    Task Type
+                </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                CV Std
-            </div>
-
-            <div class="metric-value">
-                ${safeNumber(result.cv_std, 5)}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Training Time
+                <div class="metric-value metric-small">
+                    ${result.task_type || "-"}
+                </div>
             </div>
 
-            <div class="metric-value">
-                ${safeNumber(result.training_time_sec, 2)}s
-            </div>
-        </div>
+            <div class="metric-box">
+                <div class="metric-title">
+                    Removed Leakage Columns
+                </div>
 
-        <div class="metric-box">
-            <div class="metric-title">
-                Compute Cost
-            </div>
-
-            <div class="metric-value">
-                ${safeNumber(result.total_compute_cost, 2)}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Tokens Used
+                <div class="metric-value metric-small">
+                    ${
+                        result.leakage_columns_removed
+                        && result.leakage_columns_removed.length > 0
+                        ? result.leakage_columns_removed.join(", ")
+                        : "none"
+                    }
+                </div>
             </div>
 
-            <div class="metric-value">
-                ${result.total_token_cost ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Tokens Left
-            </div>
-
-            <div class="metric-value">
-                ${result.remaining_tokens ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Token Budget
-            </div>
-
-            <div class="metric-value">
-                ${result.token_budget ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Rows
-            </div>
-
-            <div class="metric-value">
-                ${result.num_rows ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Features
-            </div>
-
-            <div class="metric-value">
-                ${result.num_features ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Checklist Passed
-            </div>
-
-            <div class="metric-value">
-                ${checklistSummary.passed ?? "-"}/${checklistSummary.total ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box">
-            <div class="metric-title">
-                Checklist Warnings
-            </div>
-
-            <div class="metric-value">
-                ${checklistSummary.warnings ?? "-"}
-            </div>
-        </div>
-
-        <div class="metric-box" style="grid-column:1 / -1;">
-            <div class="metric-title">
-                Feedback For Next Step
-            </div>
-
-            <div class="metric-value metric-small">
-                ${feedbackText}
-            </div>
         </div>
     `;
 }
-
-document
-.getElementById(
-    "uploadForm"
-)
-.addEventListener(
-    "submit",
-    async function(event){
-
-        event.preventDefault();
-
-        document
-        .getElementById(
-            "download-card"
-        ).style.display = "none";
-
-        document
-        .getElementById(
-            "download"
-        ).innerHTML = "";
-
-        document
-        .getElementById(
-            "logs"
-        ).innerText = "";
-
-        renderBestResult({});
-
-        document
-        .getElementById(
-            "status"
-        ).innerText = "Starting";
-
-        document
-        .getElementById(
-            "status"
-        ).className = "";
-
-        updateProgress(0);
-
-        const formData =
-            new FormData(this);
-
-        const response =
-            await fetch(
-                "/start",
-                {
-                    method:"POST",
-                    body:formData
-                }
-            );
-
-       if(!response.ok){
-
-            const data =
-                await response.json();
-
-            document
-            .getElementById(
-                "status"
-            ).innerText =
-                data.message || "ERROR: cannot start run";
-
-            document
-            .getElementById(
-                "status"
-            ).className =
-                "error";
-
-            return;
-        }
-
-        if(polling){
-            clearInterval(polling);
-        }
-
-        polling = setInterval(
-            fetchState,
-            1500
-        );
-
-        fetchState();
-    }
-);
 
 function updateProgress(progress){
 
@@ -939,7 +968,8 @@ async function fetchState(){
         data.logs || "";
 
     renderBestResult(
-        data.best_result || {}
+        data.best_result || {},
+        data.run_stats || {}
     );
 
     if(
@@ -991,6 +1021,103 @@ async function fetchState(){
         clearInterval(polling);
     }
 }
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function(){
+
+        const form =
+            document.getElementById(
+                "uploadForm"
+            );
+
+        form.addEventListener(
+            "submit",
+            async function(event){
+
+                event.preventDefault();
+
+                document
+                .getElementById(
+                    "download-card"
+                ).style.display = "none";
+
+                document
+                .getElementById(
+                    "download"
+                ).innerHTML = "";
+
+                document
+                .getElementById(
+                    "logs"
+                ).innerText = "";
+
+              renderBestResult({}, {});
+
+                document
+                .getElementById(
+                    "status"
+                ).innerText = "Starting";
+
+                document
+                .getElementById(
+                    "status"
+                ).className = "";
+
+                updateProgress(0);
+
+                const formData =
+                    new FormData(form);
+
+                const response =
+                    await fetch(
+                        "/start",
+                        {
+                            method:"POST",
+                            body:formData
+                        }
+                    );
+
+                if(!response.ok){
+
+                    let data = {};
+
+                    try{
+                        data = await response.json();
+                    }catch(error){
+                        data = {};
+                    }
+
+                    document
+                    .getElementById(
+                        "status"
+                    ).innerText =
+                        data.message ||
+                        "ERROR: cannot start run";
+
+                    document
+                    .getElementById(
+                        "status"
+                    ).className =
+                        "error";
+
+                    return;
+                }
+
+                if(polling){
+                    clearInterval(polling);
+                }
+
+                polling = setInterval(
+                    fetchState,
+                    1500
+                );
+
+                fetchState();
+            }
+        );
+    }
+);
 
 </script>
 
