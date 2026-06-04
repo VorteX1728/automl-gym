@@ -58,51 +58,53 @@ def load_state():
     return data
 
 
+def compact_history(history, max_items=5):
+    compact = []
+
+    for item in history[-max_items:]:
+        action = item.get("action", {})
+        observation = item.get("observation", {})
+
+        compact.append({
+            "model": action.get("model"),
+            "params": action.get("params", {}),
+            "success": observation.get("success"),
+            "val_score": observation.get("val_score"),
+            "objective_value": observation.get("objective_value"),
+            "reward": observation.get("reward"),
+            "overfit_gap": observation.get("overfit_gap"),
+            "cv_std": observation.get("cv_std"),
+            "error": observation.get("error"),
+            "checklist_feedback": (
+                observation
+                .get("checklist", {})
+                .get("agent_feedback", [])[:3]
+            )
+        })
+
+    return compact
+
+
 def build_prompt(
     best_score,
     history,
     user_comment,
     metric,
     remaining_budget,
-    remaining_tokens,
-    token_budget
+    remaining_tokens
 ):
-
-    tried_models = []
-    last_checklist_feedback = []
-    last_checklist_summary = {}
-
-    for item in history:
-        try:
-            model_name = item["action"]["model"]
-
-            if model_name not in tried_models:
-                tried_models.append(model_name)
-
-        except Exception:
-            pass
-
-    if history:
-        try:
-            last_observation = history[-1].get("observation", {})
-            last_checklist = last_observation.get("checklist", {})
-            last_checklist_feedback = last_checklist.get("agent_feedback", [])
-            last_checklist_summary = last_checklist.get("summary", {})
-        except Exception:
-            last_checklist_feedback = []
-            last_checklist_summary = {}
+    short_history = compact_history(
+        history,
+        max_items=4
+    )
 
     return f"""
-You are an AutoML research agent.
+You are an AutoML agent for tabular data.
 
-Your goal is NOT to repeatedly run the same model.
-
-Your goal is to explore the search space and discover better pipelines.
-
-Current metric:
+Metric:
 {metric}
 
-Current best score:
+Current best objective score:
 {best_score}
 
 Remaining compute budget:
@@ -111,129 +113,42 @@ Remaining compute budget:
 Remaining token budget:
 {remaining_tokens}
 
-Total token budget:
-{token_budget}
-
 User comment:
 {user_comment}
 
-Models already tested:
-{tried_models}
+Recent compact experiments:
+{json.dumps(short_history, ensure_ascii=False, indent=2)}
 
-Previous experiments:
-{json.dumps(history[-10:], ensure_ascii=False, indent=2)}
-
-LAST CHECKLIST SUMMARY:
-{json.dumps(last_checklist_summary, ensure_ascii=False, indent=2)}
-
-LAST ENVIRONMENT FEEDBACK FOR NEXT ACTION:
-{json.dumps(last_checklist_feedback, ensure_ascii=False, indent=2)}
-
-CHECKLIST RULES
-
-1.
-You must use the environment checklist feedback when choosing the next action.
-
-2.
-If the checklist says to try an untested model, choose one of the untested models.
-
-3.
-If the checklist reports invalid or sanitized parameters, avoid those parameters next time.
-
-4.
-If the checklist reports overfitting, reduce model complexity.
-
-5.
-If the checklist reports low token or compute budget, use a smaller and cheaper model.
-
-6.
-If the previous action failed, fix the exact error instead of repeating the same action.
-
-AVAILABLE MODELS
-    
+Allowed models:
 - xgboost
 - lightgbm
 - catboost
 - random_forest
 - hist_gb
 
-IMPORTANT RULES
+Rules:
+1. Return ONLY JSON.
+2. Keep response short.
+3. Do not explain.
+4. Use different models during early exploration.
+5. Avoid repeating same model and same params.
+6. If remaining token budget is low, tune the current best model.
+7. Do not use markdown.
+8. Do not use code blocks.
+9. Return JSON under 80 tokens.
 
-1.
-During the first 5 steps you MUST test different models.
-
-2.
-Do NOT repeatedly suggest the same model if another model has not been tested yet.
-
-3.
-If xgboost was tested,
-consider trying:
-- lightgbm
-- catboost
-
-4.
-If all models were tested,
-then start hyperparameter optimization.
-
-5.
-Avoid suggesting exactly the same parameters twice.
-
-6.
-Prefer exploration before exploitation.
-
-7.
-Model diversity is important.
-
-8.
-Repeatedly selecting the same model may lead to lower reward.
-
-9.
-Try models that were not tested recently.
-
-10.
-If a model performed poorly,
-try a different model instead of repeating it.
-
-TOKEN BUDGET RULES
-
-1.
-Every LLM answer consumes token budget.
-
-2.
-Keep responses short. Return only JSON.
-
-3.
-When remaining token budget is below 50%, reduce exploration.
-
-4.
-When remaining token budget is below 25%, tune the best known model.
-
-5.
-When remaining token budget is below 10%, avoid new experiments and choose low-risk parameters.
-
-6.
-Do not waste tokens on explanations, markdown, comments, or code blocks.
-
-ACTION FORMAT
+JSON format:
 
 {{
     "action": "train",
     "model": "lightgbm",
     "params": {{
         "max_depth": 5,
-        "n_estimators": 150,
+        "n_estimators": 120,
         "learning_rate": 0.05
     }}
 }}
-
-Return ONLY valid JSON.
-
-Do not write explanations.
-Do not write markdown.
-Do not write code blocks.
-Return ONLY JSON.
 """
-
 def run_automl(
     train_path,
     test_path,
@@ -292,8 +207,7 @@ def run_automl(
                 user_comment,
                 metric,
                 max(0, env.compute_budget - env.total_compute_cost),
-                max(0, env.token_budget - env.total_token_cost),
-                env.token_budget
+                max(0, env.token_budget - env.total_token_cost)
             )
 
             action = agent.act(prompt)

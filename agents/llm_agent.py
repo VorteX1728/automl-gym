@@ -53,8 +53,7 @@ class LLMAgent:
         parsed["_token_info"] = {
             "prompt_tokens": int(prompt_tokens),
             "response_tokens": int(response_tokens),
-            "total_tokens": int(total_tokens),
-            "raw_response": content
+            "total_tokens": int(total_tokens)
         }
 
         return parsed

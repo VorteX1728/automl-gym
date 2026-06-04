@@ -64,7 +64,7 @@ class AutoMLEnv:
 
         # Maximum total LLM tokens allowed for one AutoML run.
         # Counts prompt + response tokens returned by the local LLM wrapper.
-        self.token_budget = 20000
+        self.token_budget = 32000
 
         self.raw_df = self._read_csv_safely(
             train_path
