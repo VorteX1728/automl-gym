@@ -269,6 +269,21 @@ button:hover{
     overflow-wrap:anywhere;
 }
 
+.checklist-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+}
+
+.checklist-toggle{
+    width:auto;
+    margin:0;
+    padding:6px 12px;
+    border-radius:8px;
+    font-size:12px;
+}
+
 .metric-title{
     color:#94a3b8;
     font-size:13px;
@@ -661,6 +676,7 @@ button:hover{
 <script>
 
 let polling = null;
+let checklistExpanded = false;
 
 function safeNumber(value, digits = 4){
 
@@ -675,6 +691,39 @@ function safeNumber(value, digits = 4){
     return Number(value).toFixed(digits);
 }
 
+function toggleChecklist(){
+
+    checklistExpanded =
+        !checklistExpanded;
+
+    applyChecklistState();
+}
+
+function applyChecklistState(){
+
+    const details =
+        document.getElementById(
+            "checklist-details"
+        );
+
+    const button =
+        document.getElementById(
+            "checklist-toggle-button"
+        );
+
+    if(!details || !button){
+        return;
+    }
+
+    if(checklistExpanded){
+        details.style.display = "flex";
+        button.innerText = "Hide";
+    }else{
+        details.style.display = "none";
+        button.innerText = "Show";
+    }
+}
+
 function renderBestResult(result, runStats = {}){
 
     const container =
@@ -682,10 +731,17 @@ function renderBestResult(result, runStats = {}){
             "best_result"
         );
 
+    const checklistDisplay =
+        checklistExpanded ? "flex" : "none";
+
+    const checklistButtonText =
+        checklistExpanded ? "Hide" : "Show";
+
     if(
         !result ||
         Object.keys(result).length === 0
     ){
+
         container.innerHTML = `
 
             <div class="metric-box">
@@ -698,6 +754,8 @@ function renderBestResult(result, runStats = {}){
                 </div>
             </div>
         `;
+
+        applyChecklistState();
 
         return;
     }
@@ -891,13 +949,29 @@ function renderBestResult(result, runStats = {}){
 
         </div>
 
-        <div class="section-title">
-            Checklist Details
-        </div>
+        <div class="section-title checklist-header">
+          <span>
+              Checklist Details
+          </span>
 
-        <div class="checklist-list">
-            ${checklistHtml}
-        </div>
+          <button
+              type="button"
+              class="checklist-toggle"
+              onclick="toggleChecklist()"
+              id="checklist-toggle-button"
+          >
+              ${checklistButtonText}
+          </button>
+      </div>
+
+      <div
+          class="checklist-list"
+          id="checklist-details"
+          style="display:${checklistDisplay};"
+      >
+          ${checklistHtml}
+      </div>
+
         <div class="section-title">
             Agent Training
         </div>
