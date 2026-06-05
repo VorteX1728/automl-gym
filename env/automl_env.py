@@ -70,6 +70,25 @@ class AutoMLEnv:
             train_path
         )
 
+        print("TRAIN PATH:", train_path)
+
+        print("SHAPE:", self.raw_df.shape)
+        print("COLUMNS:", list(self.raw_df.columns))
+
+        print("TARGET EXISTS:", target_column in self.raw_df.columns)
+
+        if target_column in self.raw_df.columns:
+            print("TARGET DTYPE:", self.raw_df[target_column].dtype)
+            print("TARGET HEAD:")
+            print(self.raw_df[target_column].head(20))
+            print("TARGET COUNTS:")
+            print(
+                self.raw_df[target_column]
+                .astype(str)
+                .value_counts(dropna=False)
+                .head(30)
+            )
+
         self.initial_shape = self.raw_df.shape
         self.initial_missing_values = int(self.raw_df.isna().sum().sum())
         self.initial_duplicate_rows = int(self.raw_df.duplicated().sum())
@@ -110,6 +129,8 @@ class AutoMLEnv:
             self.raw_df[target_column]
         )
 
+        self.target_mapping = None
+
         self.df = self._prepare_train_dataframe(
             self.raw_df.copy()
         )
@@ -120,21 +141,70 @@ class AutoMLEnv:
 
         self.y = self.df[self.target_column]
 
-        stratify = None
+        if self.task_type == "classification":
 
-        if (
-            self.task_type == "classification"
-            and self.y.nunique() > 1
-        ):
-            stratify = self.y
+            class_counts = self.y.value_counts()
 
-        self.X_train, self.X_val, self.y_train, self.y_val = train_test_split(
-            self.X,
-            self.y,
-            test_size=0.2,
-            random_state=42,
-            stratify=stratify
-        )
+            if self.y.nunique() < 2:
+                raise ValueError(
+                    "Target contains only one class after preprocessing. "
+                    f"Target column: {self.target_column}. "
+                    f"Class distribution: {class_counts.to_dict()}. "
+                    f"Target mapping: {self.target_mapping}."
+                )
+
+            if class_counts.min() < 2:
+                raise ValueError(
+                    "At least one target class has fewer than 2 rows. "
+                    f"Class distribution: {class_counts.to_dict()}. "
+                    "Stratified validation split is impossible."
+                )
+
+            split_done = False
+            last_error = None
+
+            for test_size in [0.2, 0.25, 0.3, 0.15, 0.1]:
+                for seed in [42, 1, 7, 13, 21, 100]:
+
+                    try:
+                        (
+                            self.X_train,
+                            self.X_val,
+                            self.y_train,
+                            self.y_val
+                        ) = train_test_split(
+                            self.X,
+                            self.y,
+                            test_size=test_size,
+                            random_state=seed,
+                            stratify=self.y
+                        )
+
+                        if self.y_train.nunique() >= 2 and self.y_val.nunique() >= 2:
+                            split_done = True
+                            break
+
+                    except Exception as error:
+                        last_error = error
+
+                if split_done:
+                    break
+
+            if not split_done:
+                raise ValueError(
+                    "Could not create validation split with at least two classes. "
+                    f"Overall class distribution: {class_counts.to_dict()}. "
+                    f"Last split error: {last_error}."
+                )
+
+        else:
+
+            self.X_train, self.X_val, self.y_train, self.y_val = train_test_split(
+                self.X,
+                self.y,
+                test_size=0.2,
+                random_state=42
+            )
 
     def _read_csv_safely(self, path):
 
@@ -208,10 +278,7 @@ class AutoMLEnv:
 
         for column in df.columns:
 
-            if (
-                column == self.target_column
-                and not is_train
-            ):
+            if column == self.target_column:
                 continue
 
             if (
@@ -338,6 +405,63 @@ class AutoMLEnv:
 
     def _prepare_train_dataframe(self, df):
 
+        # Clean target BEFORE generic preprocessing.
+        # Do not convert missing target values to the string "missing".
+        target = df[self.target_column]
+
+        target_str = (
+            target
+            .astype(str)
+            .str.strip()
+        )
+
+        missing_like = (
+            target.isna()
+            | target_str.str.lower().isin([
+                "",
+                "nan",
+                "none",
+                "null",
+                "missing",
+                "na",
+                "n/a",
+                "<na>"
+            ])
+        )
+
+        valid_mask = ~missing_like
+
+        df = df.loc[
+            valid_mask
+        ].copy()
+
+        target_clean = target_str.loc[
+            valid_mask
+        ]
+
+        df[self.target_column] = target_clean.values
+
+        if len(df) == 0:
+
+            raw_counts = (
+                target_str
+                .value_counts(dropna=False)
+                .head(20)
+                .to_dict()
+            )
+
+            raise ValueError(
+                f"All rows were removed because target column "
+                f"'{self.target_column}' is empty or missing-like. "
+                f"Raw target values: {raw_counts}."
+            )
+
+        print("CLEAN TARGET COUNTS:")
+        print(
+            df[self.target_column]
+            .value_counts(dropna=False)
+        )
+
         df = self._clean_basic(
             df,
             is_train=True
@@ -348,6 +472,39 @@ class AutoMLEnv:
         df = self._remove_leakage(df)
 
         y = df[self.target_column]
+
+        # CLASSIFICATION
+        if self.task_type == "classification":
+
+            # НЕ ДЕЛАТЬ fillna("missing")
+            y = y.astype(str)
+
+            classes = sorted(
+                y.unique()
+            )
+
+            self.target_mapping = {
+                value: index
+                for index, value in enumerate(classes)
+            }
+
+            y = (
+                y
+                .map(self.target_mapping)
+                .astype(int)
+            )
+
+        # REGRESSION
+        else:
+
+            y = pd.to_numeric(
+                y,
+                errors="coerce"
+            )
+
+            y = y.fillna(
+                y.median()
+            )
 
         X = df.drop(
             columns=[self.target_column]
@@ -489,6 +646,9 @@ class AutoMLEnv:
 
         if model_name == "hist_gb":
 
+            if "n_estimators" in params:
+                params["max_iter"] = params.pop("n_estimators")
+
             if self.task_type == "regression":
                 return HistGradientBoostingRegressor(
                     **common,
@@ -605,7 +765,23 @@ class AutoMLEnv:
 
         if self.metric == "roc_auc":
 
+            unique_classes = np.unique(y_true)
+
+            if len(unique_classes) < 2:
+                raise ValueError(
+                    "ROC-AUC requires at least 2 classes"
+                )
+
+            # binary classification
             if np.ndim(preds) == 2:
+
+                if preds.shape[1] == 2:
+
+                    return roc_auc_score(
+                        y_true,
+                        preds[:, 1]
+                    )
+
                 return roc_auc_score(
                     y_true,
                     preds,
@@ -1061,6 +1237,18 @@ class AutoMLEnv:
                     train_preds
                 )
             )
+
+            if not np.isfinite(val_score):
+                raise ValueError(
+                    "Validation score is NaN or infinite. "
+                    "Check target encoding, metric compatibility, or class distribution."
+                )
+
+            if not np.isfinite(train_score):
+                raise ValueError(
+                    "Train score is NaN or infinite. "
+                    "Check target encoding, metric compatibility, or class distribution."
+                )
 
             objective = float(
                 self._objective_value(val_score)

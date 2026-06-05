@@ -387,9 +387,13 @@ def start():
     llm_model = request.form["llm_model"]
     metric = request.form["metric"]
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+    safe_train_name = train_file.filename.replace("\\", "_").replace("/", "_")
+
     train_path = os.path.join(
         UPLOAD_FOLDER,
-        train_file.filename
+        f"{timestamp}_train_{safe_train_name}"
     )
 
     train_file.save(train_path)
@@ -397,9 +401,12 @@ def start():
     test_path = None
 
     if test_file and test_file.filename:
+
+        safe_test_name = test_file.filename.replace("\\", "_").replace("/", "_")
+
         test_path = os.path.join(
             UPLOAD_FOLDER,
-            test_file.filename
+            f"{timestamp}_test_{safe_test_name}"
         )
 
         test_file.save(test_path)
