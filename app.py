@@ -202,7 +202,7 @@ def run_automl(
             model_name=llm_model
         )
 
-        best_objective = -float("inf")
+        best_selection_score = -float("inf")
         best_result = {}
         run_stats = {}
 
@@ -224,7 +224,7 @@ def run_automl(
             })
 
             prompt = build_prompt(
-                best_objective,
+                best_selection_score,
                 env.history,
                 user_comment,
                 metric,
@@ -282,8 +282,14 @@ def run_automl(
                 break
 
             if result.get("success"):
-                if result["objective_value"] > best_objective:
-                    best_objective = result["objective_value"]
+
+                selection_score = result.get(
+                    "selection_score",
+                    result.get("reward", -float("inf"))
+                )
+
+                if selection_score > best_selection_score:
+                    best_selection_score = selection_score
                     best_result = result
             else:
                 logs += "\nMODEL FAILED:\n"

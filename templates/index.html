@@ -221,6 +221,54 @@ button:hover{
     justify-content:space-between;
 }
 
+.checklist-list{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    margin-top:12px;
+}
+
+.checklist-item{
+    background:#0f172a;
+    border:1px solid #334155;
+    border-radius:12px;
+    padding:12px;
+}
+
+.checklist-item-header{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:6px;
+}
+
+.checklist-name{
+    font-weight:700;
+    color:#e2e8f0;
+}
+
+.checklist-status{
+    font-weight:800;
+}
+
+.checklist-status-ok{
+    color:#4ade80;
+}
+
+.checklist-status-bad{
+    color:#f87171;
+}
+
+.checklist-status-warning{
+    color:#facc15;
+}
+
+.checklist-details{
+    color:#94a3b8;
+    font-size:13px;
+    overflow-wrap:anywhere;
+}
+
 .metric-title{
     color:#94a3b8;
     font-size:13px;
@@ -660,6 +708,54 @@ function renderBestResult(result, runStats = {}){
     const checklistSummary =
         checklist.summary || {};
 
+    const checklistItems =
+        checklist.items || [];
+
+    const checklistHtml =
+        checklistItems.length > 0
+        ? checklistItems.map(function(item){
+
+            let statusText = "PASS";
+            let statusClass = "checklist-status-ok";
+
+            if(!item.passed){
+                statusText = "FAIL";
+                statusClass = "checklist-status-bad";
+            }
+
+            if(item.severity === "warning"){
+                statusText = item.passed ? "WARN" : "FAIL";
+                statusClass = item.passed
+                    ? "checklist-status-warning"
+                    : "checklist-status-bad";
+            }
+
+            return `
+                <div class="checklist-item">
+                    <div class="checklist-item-header">
+                        <div class="checklist-name">
+                            ${item.name || "-"}
+                        </div>
+
+                        <div class="checklist-status ${statusClass}">
+                            ${statusText}
+                        </div>
+                    </div>
+
+                    <div class="checklist-details">
+                        ${item.details || ""}
+                    </div>
+                </div>
+            `;
+        }).join("")
+        : `
+            <div class="checklist-item">
+                <div class="checklist-details">
+                    No checklist details available
+                </div>
+            </div>
+        `;
+
     container.innerHTML = `
 
         <div class="section-title">
@@ -795,6 +891,13 @@ function renderBestResult(result, runStats = {}){
 
         </div>
 
+        <div class="section-title">
+            Checklist Details
+        </div>
+
+        <div class="checklist-list">
+            ${checklistHtml}
+        </div>
         <div class="section-title">
             Agent Training
         </div>

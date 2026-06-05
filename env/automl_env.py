@@ -1328,19 +1328,19 @@ class AutoMLEnv:
 
             self.total_token_cost += token_cost
 
-            token_ratio = min(
+            step_token_ratio = min(
                 1.0,
-                self.total_token_cost / max(1, self.token_budget)
+                token_cost / max(1, self.token_budget)
             )
 
-            reward = float(
+            base_reward = float(
                 objective
                 - overfit_gap
                 - cv_std
                 - compute_cost * 0.001
                 - token_cost * 0.000001
                 - response_cost * 0.0001
-                - token_ratio * 0.05
+                - step_token_ratio * 0.05
                 - repeat_penalty
             )
 
@@ -1351,9 +1351,11 @@ class AutoMLEnv:
             result = {
                 "success": True,
                 "candidate_id": candidate_id,
-                "reward": reward,
+                "reward": base_reward,
                 "val_score": val_score,
                 "objective_value": objective,
+                "selection_score": base_reward,
+                "selection_criterion": "reward",
                 "cv_std": cv_std,
                 "train_score": train_score,
                 "overfit_gap": float(overfit_gap),
@@ -1383,7 +1385,14 @@ class AutoMLEnv:
                     max(0, self.token_budget - self.total_token_cost)
                 ),
                 "token_usage_ratio": float(
-                    min(1.0, self.total_token_cost / max(1, self.token_budget))
+                    min(
+                        1.0,
+                        self.total_token_cost
+                        / max(1, self.token_budget)
+                    )
+                ),
+                "step_token_usage_ratio": float(
+                    step_token_ratio
                 ),
                 "num_rows": int(len(self.df)),
                 "num_features": int(
@@ -1403,7 +1412,7 @@ class AutoMLEnv:
                     self._feature_importance(model)
             }
 
-            result["checklist"] = self._build_checklist_feedback(
+            checklist_feedback = self._build_checklist_feedback(
                 action=action,
                 model_name=model_name,
                 raw_params=raw_params,
@@ -1411,15 +1420,34 @@ class AutoMLEnv:
                 validation_result=result
             )
 
+            checklist_summary = checklist_feedback.get(
+                "summary",
+                {}
+            )
+
+            checklist_penalty = float(
+                checklist_summary.get("failed", 0) * 0.01
+                + checklist_summary.get("warnings", 0) * 0.005
+            )
+
+            final_reward = float(
+                base_reward - checklist_penalty
+            )
+
+            result["reward"] = final_reward
+            result["selection_score"] = final_reward
+            result["checklist_penalty"] = checklist_penalty
+            result["checklist"] = checklist_feedback
+
             self.candidates.append({
                 "candidate_id": candidate_id,
                 "action": action,
                 "observation": result
             })
 
-            if objective > self.best_objective:
+            if final_reward > self.best_objective:
 
-                self.best_objective = objective
+                self.best_objective = final_reward
                 self.best_score = val_score
                 self.best_model_name = model_name
                 self.best_model_object = model
@@ -1433,6 +1461,8 @@ class AutoMLEnv:
                 result["best_model"] = (
                     self.best_model_name
                 )
+
+                result["selection_criterion"] = "reward"
 
             self.history.append({
                 "action": action,
