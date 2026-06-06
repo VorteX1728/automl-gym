@@ -48,6 +48,7 @@ def load_state():
             "best_result": {},
             "run_stats": {},
             "submission_file": None,
+            "model_state": "IDLE",
             "is_running": False
         }
 
@@ -189,6 +190,7 @@ def run_automl(
             "best_result": {},
             "run_stats": {},
             "submission_file": None,
+            "model_state": "EDA",
             "is_running": True
         })
 
@@ -215,6 +217,7 @@ def run_automl(
 
             save_state({
                 "status": f"Step {step}: generating action",
+                "model_state": "MODEL_SELECTION",
                 "progress": progress,
                 "logs": logs,
                 "best_result": best_result,
@@ -244,6 +247,7 @@ def run_automl(
 
             save_state({
                 "status": f"Step {step}: training model",
+                "model_state": "TRAINING",
                 "progress": min(progress + 5, 95),
                 "logs": logs,
                 "best_result": best_result,
@@ -298,6 +302,7 @@ def run_automl(
 
             save_state({
                 "status": f"Step {step}: completed",
+                "model_state": "EVALUATION",
                 "progress": int(((step + 1) / max(steps, 1)) * 90),
                 "logs": logs,
                 "best_result": best_result,
@@ -310,6 +315,7 @@ def run_automl(
 
         save_state({
             "status": "Creating submission",
+            "model_state": "PREDICTION",
             "progress": 95,
             "logs": logs,
             "best_result": best_result,
@@ -345,6 +351,7 @@ def run_automl(
 
         save_state({
             "status": "FINISHED",
+            "model_state": "FINISHED",
             "progress": 100,
             "logs": logs,
             "best_result": best_result,
@@ -359,11 +366,13 @@ def run_automl(
 
         save_state({
             "status": "ERROR",
+            "model_state": "ERROR",
             "progress": 100,
             "logs": logs,
             "best_result": {},
             "run_stats": {},
             "submission_file": None,
+            "model_state": "IDLE",
             "is_running": False
         })
 

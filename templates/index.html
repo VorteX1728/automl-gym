@@ -603,6 +603,18 @@ button:hover{
                 <div>
 
                     <div class="status-muted">
+                        Model state
+                    </div>
+
+                    <div id="model-state">
+                        IDLE
+                    </div>
+
+                </div>
+
+                <div>
+
+                    <div class="status-muted">
                         Progress
                     </div>
 
@@ -1133,6 +1145,12 @@ async function fetchState(){
     .getElementById(
         "status"
     ).innerText = status;
+
+    document
+    .getElementById(
+        "model-state"
+    ).innerText =
+        data.model_state || "IDLE";
 
     updateProgress(
         data.progress || 0
