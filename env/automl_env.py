@@ -1,4 +1,5 @@
 import time
+import re
 import numpy as np
 import pandas as pd
 
@@ -16,7 +17,8 @@ from sklearn.metrics import (
     mean_absolute_error,
     f1_score,
     precision_score,
-    recall_score
+    recall_score,
+    r2_score
 )
 
 from sklearn.ensemble import (
@@ -95,12 +97,12 @@ class AutoMLEnv:
         self.initial_object_columns = [
             column
             for column in self.raw_df.columns
-            if (
-                self.raw_df[column].dtype == "object"
-                or "string" in str(self.raw_df[column].dtype)
-                or str(self.raw_df[column].dtype) == "category"
+            if self._is_object_like_column(
+                self.raw_df[column]
             )
         ]
+
+        print("INITIAL OBJECT COLUMNS:", self.initial_object_columns)
 
         if target_column not in self.raw_df.columns:
             raise ValueError(
@@ -125,15 +127,33 @@ class AutoMLEnv:
         self.feature_columns = []
         self.leakage_columns_removed = []
 
+        self.requested_metric = self.metric
+
         self.task_type = self._infer_task_type(
             self.raw_df[target_column]
         )
+
+        if (
+            self.task_type == "regression"
+            and self.metric not in self.LOWER_IS_BETTER
+            and self.metric != "r2"
+        ):
+            self.metric = "rmse"
+
+        if (
+            self.task_type == "classification"
+            and self.metric in self.LOWER_IS_BETTER
+        ):
+            self.metric = "roc_auc"
 
         self.target_mapping = None
 
         self.df = self._prepare_train_dataframe(
             self.raw_df.copy()
         )
+
+        print("PREPARED SHAPE:", self.df.shape)
+        print("ENCODED CATEGORICAL FEATURE COLUMNS:", list(self.category_maps.keys()))
 
         self.X = self.df.drop(
             columns=[self.target_column]
@@ -206,44 +226,169 @@ class AutoMLEnv:
                 random_state=42
             )
 
+
+
+    def _is_object_like_column(self, series):
+
+        dtype_text = str(series.dtype).lower()
+
+        return (
+            series.dtype == "object"
+            or "object" in dtype_text
+            or "string" in dtype_text
+            or dtype_text == "str"
+            or dtype_text.startswith("str")
+            or "category" in dtype_text
+        )
+
+    def _is_numeric_like_string_column(self, series):
+
+        name = str(
+            getattr(series, "name", "")
+        ).lower()
+
+        allowed_name_fragments = [
+            "weight",
+            "ram",
+            "inch",
+            "inches",
+            "size",
+            "capacity",
+            "storage",
+            "memory_size"
+        ]
+
+        if not any(fragment in name for fragment in allowed_name_fragments):
+            return False
+
+        sample = (
+            series
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+
+        if len(sample) == 0:
+            return False
+
+        sample = sample.head(
+            min(200, len(sample))
+        )
+
+        cleaned = (
+            sample
+            .str.replace(r"[^0-9,\.\-]+", "", regex=True)
+            .str.replace(",", ".", regex=False)
+        )
+
+        numeric = pd.to_numeric(
+            cleaned,
+            errors="coerce"
+        )
+
+        return float(numeric.notna().mean()) >= 0.9
+
+
+    def _clean_numeric_like_string_column(self, series):
+
+        cleaned = (
+            series
+            .astype(str)
+            .str.strip()
+            .str.replace(r"[^0-9,\.\-]+", "", regex=True)
+            .str.replace(",", ".", regex=False)
+        )
+
+        numeric = pd.to_numeric(
+            cleaned,
+            errors="coerce"
+        )
+
+        median = numeric.median()
+
+        if pd.isna(median):
+            median = 0
+
+        return numeric.fillna(
+            median
+        )
+
+
     def _read_csv_safely(self, path):
 
         attempts = [
             {
-                "sep": None,
-                "engine": "python",
-                "on_bad_lines": "skip"
-            },
-            {
-                "sep": ";",
-                "engine": "python",
-                "on_bad_lines": "skip"
+                "sep": ",",
+                "encoding": "utf-8",
+                "engine": "python"
             },
             {
                 "sep": ",",
-                "engine": "python",
-                "on_bad_lines": "skip"
+                "encoding": "latin1",
+                "engine": "python"
+            },
+            {
+                "sep": ";",
+                "encoding": "utf-8",
+                "engine": "python"
+            },
+            {
+                "sep": ";",
+                "encoding": "latin1",
+                "engine": "python"
             }
         ]
 
+        best_df = None
+        best_score = -1
         last_error = None
 
         for kwargs in attempts:
+
             try:
                 df = pd.read_csv(
                     path,
                     **kwargs
                 )
 
-                if df.shape[1] > 1:
-                    return df
+                if df.shape[1] <= 1:
+                    continue
+
+                object_columns = int(
+                    df.select_dtypes(
+                        include=["object", "string", "category"]
+                    ).shape[1]
+                )
+
+                non_empty_cells = int(
+                    df.notna().sum().sum()
+                )
+
+                score = (
+                    df.shape[1] * 10000
+                    + object_columns * 1000
+                    + non_empty_cells
+                )
+
+                if score > best_score:
+                    best_score = score
+                    best_df = df
 
             except Exception as error:
                 last_error = error
 
-        raise RuntimeError(
-            f"Cannot read CSV: {last_error}"
-        )
+        if best_df is None:
+            raise RuntimeError(
+                f"Cannot read CSV: {last_error}"
+            )
+
+        print("CSV READ PATH:", path)
+        print("CSV SHAPE:", best_df.shape)
+        print("CSV COLUMNS:", list(best_df.columns))
+        print("CSV DTYPES:")
+        print(best_df.dtypes)
+
+        return best_df
 
     def _infer_task_type(self, y):
 
@@ -273,6 +418,29 @@ class AutoMLEnv:
         is_train
     ):
 
+        df = df.copy()
+
+        drop_columns = []
+
+        for column in df.columns:
+
+            if column == self.target_column:
+                continue
+
+            column_lower = str(column).lower().strip()
+
+            if (
+                column_lower.startswith("unnamed")
+                or column_lower in ["index", "row_index"]
+            ):
+                drop_columns.append(column)
+
+        if drop_columns:
+            df = df.drop(
+                columns=drop_columns,
+                errors="ignore"
+            )
+
         if is_train:
             df = df.drop_duplicates()
 
@@ -281,35 +449,45 @@ class AutoMLEnv:
             if column == self.target_column:
                 continue
 
-            if (
-                df[column].dtype == "object"
-                or "string" in str(df[column].dtype)
-                or str(df[column].dtype) == "category"
-            ):
-                df[column] = (
-                    df[column]
-                    .fillna("missing")
-                    .astype(str)
-                )
+            is_object_like = self._is_object_like_column(
+                df[column]
+            )
+
+            if is_object_like:
+
+                if self._is_numeric_like_string_column(df[column]):
+                    df[column] = self._clean_numeric_like_string_column(
+                        df[column]
+                    )
+                else:
+                    df[column] = (
+                        df[column]
+                        .fillna("missing")
+                        .astype(str)
+                        .str.strip()
+                    )
 
             else:
-                df[column] = pd.to_numeric(
+
+                numeric_series = pd.to_numeric(
                     df[column],
                     errors="coerce"
                 )
 
-                median = df[column].median()
+                median = numeric_series.median()
 
                 if pd.isna(median):
                     median = 0
 
-                df[column] = df[column].fillna(
+                df[column] = numeric_series.fillna(
                     median
                 )
 
         return df
 
     def _feature_engineering(self, df):
+
+        df = df.copy()
 
         numeric_columns = [
             column
@@ -319,12 +497,58 @@ class AutoMLEnv:
             if column != self.target_column
         ]
 
-        for column in numeric_columns[:5]:
+        safe_numeric_columns = [
+            column
+            for column in numeric_columns
+            if (
+                "id" not in str(column).lower()
+                and "index" not in str(column).lower()
+                and "unnamed" not in str(column).lower()
+            )
+        ]
+
+        for column in safe_numeric_columns[:5]:
             df[f"{column}_squared"] = (
                 df[column] ** 2
             )
 
         return df
+
+
+    def _sanitize_feature_names(self, X):
+
+        X = X.copy()
+
+        clean_columns = []
+        used = {}
+
+        for column in X.columns:
+
+            clean = re.sub(
+                r"[^A-Za-z0-9_]+",
+                "_",
+                str(column)
+            ).strip("_")
+
+            if not clean:
+                clean = "feature"
+
+            if clean[0].isdigit():
+                clean = "f_" + clean
+
+            base = clean
+            count = used.get(base, 0)
+
+            if count:
+                clean = f"{base}_{count}"
+
+            used[base] = count + 1
+
+            clean_columns.append(clean)
+
+        X.columns = clean_columns
+
+        return X
 
     def _encode_train_features(self, X):
 
@@ -332,10 +556,8 @@ class AutoMLEnv:
 
         for column in X.columns:
 
-            if (
-                X[column].dtype == "object"
-                or "string" in str(X[column].dtype)
-                or str(X[column].dtype) == "category"
+            if self._is_object_like_column(
+                X[column]
             ):
                 values = (
                     X[column]
@@ -369,6 +591,8 @@ class AutoMLEnv:
             .fillna(0)
         )
 
+        X = self._sanitize_feature_names(X)
+
         self.feature_columns = list(X.columns)
 
         return X
@@ -394,6 +618,8 @@ class AutoMLEnv:
             .apply(pd.to_numeric, errors="coerce")
             .fillna(0)
         )
+
+        X = self._sanitize_feature_names(X)
 
         for column in self.feature_columns:
             if column not in X.columns:
@@ -496,6 +722,13 @@ class AutoMLEnv:
 
         # REGRESSION
         else:
+
+            y = (
+                y
+                .astype(str)
+                .str.replace(r"[^0-9.,\-]+", "", regex=True)
+                .str.replace(",", ".", regex=False)
+            )
 
             y = pd.to_numeric(
                 y,
@@ -628,6 +861,20 @@ class AutoMLEnv:
 
         if model_name == "random_forest":
 
+            for key in [
+                "learning_rate",
+                "subsample",
+                "colsample_bytree",
+                "num_leaves",
+                "iterations",
+                "depth",
+                "max_iter",
+                "n_bins",
+                "loss_function",
+                "random_strength"
+            ]:
+                params.pop(key, None)
+
             params.setdefault(
                 "n_estimators",
                 120
@@ -646,6 +893,20 @@ class AutoMLEnv:
 
         if model_name == "hist_gb":
 
+            for key in [
+                "n_bins",
+                "num_leaves",
+                "subsample",
+                "colsample_bytree",
+                "bagging_fraction",
+                "feature_fraction",
+                "iterations",
+                "depth",
+                "loss_function",
+                "random_strength"
+            ]:
+                params.pop(key, None)
+
             if "n_estimators" in params:
                 params["max_iter"] = params.pop("n_estimators")
 
@@ -661,6 +922,16 @@ class AutoMLEnv:
             )
 
         if model_name == "lightgbm":
+
+            for key in [
+                "iterations",
+                "depth",
+                "max_iter",
+                "n_bins",
+                "loss_function",
+                "random_strength"
+            ]:
+                params.pop(key, None)
 
             params.setdefault(
                 "n_estimators",
@@ -686,6 +957,17 @@ class AutoMLEnv:
             )
 
         if model_name == "catboost":
+
+            for key in [
+                "subsample",
+                "colsample_bytree",
+                "bagging_fraction",
+                "feature_fraction",
+                "num_leaves",
+                "max_iter",
+                "n_bins"
+            ]:
+                params.pop(key, None)
 
             params.setdefault(
                 "iterations",
@@ -714,6 +996,19 @@ class AutoMLEnv:
                 verbose=0,
                 **params
             )
+
+        for key in [
+            "iterations",
+            "depth",
+            "max_iter",
+            "n_bins",
+            "loss_function",
+            "random_strength",
+            "num_leaves",
+            "bagging_fraction",
+            "feature_fraction"
+        ]:
+            params.pop(key, None)
 
         params.setdefault(
             "n_estimators",
@@ -839,6 +1134,12 @@ class AutoMLEnv:
                 zero_division=0
             )
 
+        if self.metric == "r2":
+            return r2_score(
+                y_true,
+                preds
+            )
+
         return accuracy_score(
             y_true,
             preds
@@ -861,7 +1162,8 @@ class AutoMLEnv:
             "recall": "recall_weighted",
             "mse": "neg_mean_squared_error",
             "rmse": "neg_root_mean_squared_error",
-            "mae": "neg_mean_absolute_error"
+            "mae": "neg_mean_absolute_error",
+            "r2": "r2"
         }
 
         return mapping.get(
@@ -918,6 +1220,30 @@ class AutoMLEnv:
             except Exception:
                 pass
 
+        model_name = (
+            str(model_name)
+            .strip()
+            .lower()
+        )
+
+        model_aliases = {
+            "histgb": "hist_gb",
+            "hist_gb": "hist_gb",
+            "hist_gradient_boosting": "hist_gb",
+            "histgradientboosting": "hist_gb",
+            "rf": "random_forest",
+            "randomforest": "random_forest",
+            "lgbm": "lightgbm",
+            "cb": "catboost",
+            "cat": "catboost",
+            "xgb": "xgboost"
+        }
+
+        model_name = model_aliases.get(
+            model_name,
+            model_name
+        )
+
         current_model_already_used = model_name in tested_models
 
         all_models = [
@@ -966,7 +1292,7 @@ class AutoMLEnv:
             self._checklist_item(
                 "categorical_features_encoded",
                 True,
-                f"Initial categorical columns: {len(self.initial_object_columns)}. Encoded categories are reused for test data."
+                f"Initial categorical columns: {len(self.initial_object_columns)}. Encoded feature columns: {len(self.category_maps)}. Encoded categories are reused for test data."
             ),
             self._checklist_item(
                 "feature_engineering_applied",
@@ -1178,6 +1504,38 @@ class AutoMLEnv:
                 "model",
                 "xgboost"
             )
+
+            model_name = (
+                str(model_name)
+                .strip()
+                .lower()
+            )
+
+            model_aliases = {
+                "histgb": "hist_gb",
+                "hist_gb": "hist_gb",
+                "hist_gradient_boosting": "hist_gb",
+                "histgradientboosting": "hist_gb",
+                "histgradientboostingregressor": "hist_gb",
+                "histgradientboostingclassifier": "hist_gb",
+                "rf": "random_forest",
+                "randomforest": "random_forest",
+                "random_forest": "random_forest",
+                "lgbm": "lightgbm",
+                "lightgbm": "lightgbm",
+                "cb": "catboost",
+                "cat": "catboost",
+                "catboost": "catboost",
+                "xgb": "xgboost",
+                "xgboost": "xgboost"
+            }
+
+            model_name = model_aliases.get(
+                model_name,
+                model_name
+            )
+
+            action["model"] = model_name
 
             recent_models = []
 
@@ -1406,6 +1764,7 @@ class AutoMLEnv:
                 "best_model": self.best_model_name,
                 "task_type": self.task_type,
                 "metric": self.metric,
+                "requested_metric": self.requested_metric,
                 "leakage_columns_removed":
                     self.leakage_columns_removed,
                 "feature_importance":
