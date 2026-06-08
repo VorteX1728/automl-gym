@@ -379,6 +379,45 @@ button:hover{
     }
 }
 
+
+.llm-comparison-table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:12px;
+    overflow:hidden;
+    border-radius:12px;
+}
+
+.llm-comparison-table th,
+.llm-comparison-table td{
+    border-bottom:1px solid #334155;
+    padding:10px;
+    text-align:left;
+    font-size:13px;
+    vertical-align:top;
+}
+
+.llm-comparison-table th{
+    color:#94a3b8;
+    font-weight:700;
+    background:#0f172a;
+}
+
+.llm-comparison-table td{
+    background:#0b1535;
+}
+
+.llm-model-select{
+    min-height:132px;
+}
+
+.hint{
+    color:#94a3b8;
+    font-size:12px;
+    margin-top:-10px;
+    margin-bottom:14px;
+}
+
 </style>
 
 </head>
@@ -456,7 +495,11 @@ button:hover{
                     LLM model
                 </label>
 
-                <select name="llm_model">
+                <select
+                    name="llm_model"
+                    multiple
+                    class="llm-model-select"
+                >
 
                     <option>
                         deepseek-r1:7b
@@ -479,6 +522,10 @@ button:hover{
                     </option>
 
                 </select>
+
+                <div class="hint">
+                    Hold Ctrl / Cmd to select several agents for comparison.
+                </div>
 
                 <label>
                     Metric
@@ -662,12 +709,29 @@ button:hover{
 
         </div>
 
+        <div class="card">
+
+            <h2>LLM Agent Comparison</h2>
+
+            <div id="llm_comparison">
+                <div class="metric-box">
+                    <div class="metric-title">
+                        Status
+                    </div>
+                    <div class="metric-value metric-small">
+                        No comparison yet
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
         <div
             id="download-card"
             class="card download-card"
         >
 
-            <h2>Submission</h2>
+            <h2>Best Submission</h2>
 
             <div id="download"></div>
 
@@ -738,6 +802,97 @@ function applyChecklistState(){
         button.innerText = "Show";
     }
 }
+
+
+function renderLLMComparison(items, bestResult = {}, globalSubmissionFile = null){
+
+    const container =
+        document.getElementById(
+            "llm_comparison"
+        );
+
+    if(!container){
+        return;
+    }
+
+    if(!items || items.length === 0){
+
+        container.innerHTML = `
+            <div class="metric-box">
+                <div class="metric-title">
+                    Status
+                </div>
+                <div class="metric-value metric-small">
+                    No comparison yet
+                </div>
+            </div>
+        `;
+
+        return;
+    }
+
+    const rows =
+        items.map(function(item, index){
+
+            const isGlobalBest =
+                bestResult
+                && bestResult.llm_model
+                && item.llm_model === bestResult.llm_model;
+
+            const submissionFile =
+                item.submission_file
+                || (
+                    isGlobalBest
+                    ? globalSubmissionFile
+                    : null
+                );
+
+            const submission =
+                submissionFile
+                ? `<a class="download-link" href="/download/${submissionFile}">CSV</a>`
+                : "-";
+
+            return `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${item.llm_model || "-"}</td>
+                    <td>${item.status || "-"}</td>
+                    <td>${item.best_model || "-"}</td>
+                    <td>${safeNumber(item.best_score, 5)}</td>
+                    <td>${safeNumber(item.best_reward, 4)}</td>
+                    <td>${item.successful_steps ?? 0}</td>
+                    <td>${item.failed_steps ?? 0}</td>
+                    <td>${item.total_token_cost ?? "-"}</td>
+                    <td>${safeNumber(item.total_compute_cost, 2)}</td>
+                    <td>${submission}</td>
+                </tr>
+            `;
+        }).join("");
+
+    container.innerHTML = `
+        <table class="llm-comparison-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>LLM Agent</th>
+                    <th>Status</th>
+                    <th>Best ML Model</th>
+                    <th>Best Score</th>
+                    <th>Best Reward</th>
+                    <th>OK</th>
+                    <th>Fail</th>
+                    <th>Tokens</th>
+                    <th>Compute</th>
+                    <th>Submission</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    `;
+}
+
 
 function renderBestResult(result, runStats = {}){
 
@@ -1170,6 +1325,12 @@ async function fetchState(){
         data.run_stats || {}
     );
 
+    renderLLMComparison(
+        data.llm_comparison || [],
+        data.best_result || {},
+        data.submission_file || null
+    );
+
     if(
         status === "FINISHED" &&
         data.submission_file
@@ -1251,6 +1412,7 @@ document.addEventListener(
                 ).innerText = "";
 
               renderBestResult({}, {});
+              renderLLMComparison([]);
 
                 document
                 .getElementById(
