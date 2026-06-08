@@ -11,6 +11,7 @@ from sklearn.model_selection import (
 )
 
 from sklearn.metrics import (
+    silhouette_score,
     accuracy_score,
     roc_auc_score,
     mean_squared_error,
@@ -27,6 +28,10 @@ from sklearn.ensemble import (
     HistGradientBoostingClassifier,
     HistGradientBoostingRegressor
 )
+
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 from xgboost import (
     XGBClassifier,
@@ -61,8 +66,13 @@ class AutoMLEnv:
     ):
         self.metric = metric
         self.target_column = target_column
+        self.force_clustering = False
         self.compute_budget = float(budget)
         self.budget = self.compute_budget
+
+        self.cluster_models = {}
+        self.cluster_scaler = None
+        self.cluster_features = []
 
         # Maximum total LLM tokens allowed for one AutoML run.
         # Counts prompt + response tokens returned by the local LLM wrapper.
@@ -72,20 +82,34 @@ class AutoMLEnv:
             train_path
         )
 
+        if (
+            not target_column
+            or str(target_column).strip() == ""
+            or target_column not in self.raw_df.columns
+        ):
+            self.force_clustering = True
+            self.target_column = "__cluster_target__"
+            self.raw_df[self.target_column] = 0
+            target_column = self.target_column
+            self.metric = "silhouette"
+        else:
+            self.force_clustering = False
+            self.target_column = target_column
+
         print("TRAIN PATH:", train_path)
 
         print("SHAPE:", self.raw_df.shape)
         print("COLUMNS:", list(self.raw_df.columns))
 
-        print("TARGET EXISTS:", target_column in self.raw_df.columns)
+        print("TARGET EXISTS:", self.target_column in self.raw_df.columns)
 
-        if target_column in self.raw_df.columns:
-            print("TARGET DTYPE:", self.raw_df[target_column].dtype)
+        if self.target_column in self.raw_df.columns:
+            print("TARGET DTYPE:", self.raw_df[self.target_column].dtype)
             print("TARGET HEAD:")
-            print(self.raw_df[target_column].head(20))
+            print(self.raw_df[self.target_column].head(20))
             print("TARGET COUNTS:")
             print(
-                self.raw_df[target_column]
+                self.raw_df[self.target_column]
                 .astype(str)
                 .value_counts(dropna=False)
                 .head(30)
@@ -104,7 +128,7 @@ class AutoMLEnv:
 
         print("INITIAL OBJECT COLUMNS:", self.initial_object_columns)
 
-        if target_column not in self.raw_df.columns:
+        if not self.force_clustering and self.target_column not in self.raw_df.columns:
             raise ValueError(
                 f"Target column '{target_column}' not found. "
                 f"Available columns: {list(self.raw_df.columns)}"
@@ -129,9 +153,12 @@ class AutoMLEnv:
 
         self.requested_metric = self.metric
 
-        self.task_type = self._infer_task_type(
-            self.raw_df[target_column]
-        )
+        if self.force_clustering:
+            self.task_type = "clustering"
+        else:
+            self.task_type = self._infer_task_type(
+                self.raw_df[self.target_column]
+            )
 
         if (
             self.task_type == "regression"
@@ -152,6 +179,7 @@ class AutoMLEnv:
             self.raw_df.copy()
         )
 
+
         print("PREPARED SHAPE:", self.df.shape)
         print("ENCODED CATEGORICAL FEATURE COLUMNS:", list(self.category_maps.keys()))
 
@@ -161,7 +189,14 @@ class AutoMLEnv:
 
         self.y = self.df[self.target_column]
 
-        if self.task_type == "classification":
+        if self.task_type == "clustering":
+
+            self.X_train = self.X.copy()
+            self.X_val = self.X.copy()
+            self.y_train = self.y.copy()
+            self.y_val = self.y.copy()
+
+        elif self.task_type == "classification":
 
             class_counts = self.y.value_counts()
 
@@ -514,6 +549,116 @@ class AutoMLEnv:
 
         return df
 
+    def _apply_clustering_features(
+        self,
+        X,
+        fit=False
+    ):
+
+        X = X.copy()
+
+        numeric_columns = [
+            column
+            for column in X.select_dtypes(
+                include=np.number
+            ).columns
+        ]
+
+        if len(numeric_columns) < 2:
+            return X
+
+        cluster_input = X[
+            numeric_columns
+        ].fillna(0)
+
+        if fit:
+
+            self.cluster_scaler = StandardScaler()
+
+            scaled = self.cluster_scaler.fit_transform(
+                cluster_input
+            )
+
+            if scaled.shape[1] > 10:
+
+                pca = PCA(
+                    n_components=10,
+                    random_state=42
+                )
+
+                scaled = pca.fit_transform(
+                    scaled
+                )
+
+                self.cluster_pca = pca
+
+            else:
+                self.cluster_pca = None
+
+            for n_clusters in [3, 5]:
+
+                model = KMeans(
+                    n_clusters=n_clusters,
+                    random_state=42,
+                    n_init=10
+                )
+
+                labels = model.fit_predict(
+                    scaled
+                )
+
+                X[
+                    f"cluster_{n_clusters}"
+                ] = labels
+
+                distances = model.transform(
+                    scaled
+                ).min(axis=1)
+
+                X[
+                    f"cluster_{n_clusters}_distance"
+                ] = distances
+
+                self.cluster_models[
+                    n_clusters
+                ] = model
+
+        else:
+
+            if self.cluster_scaler is None:
+                return X
+
+            scaled = self.cluster_scaler.transform(
+                cluster_input
+            )
+
+            if self.cluster_pca is not None:
+                scaled = self.cluster_pca.transform(
+                    scaled
+                )
+
+            for (
+                n_clusters,
+                model
+            ) in self.cluster_models.items():
+
+                labels = model.predict(
+                    scaled
+                )
+
+                X[
+                    f"cluster_{n_clusters}"
+                ] = labels
+
+                distances = model.transform(
+                    scaled
+                ).min(axis=1)
+
+                X[
+                    f"cluster_{n_clusters}_distance"
+                ] = distances
+
+        return X
 
     def _sanitize_feature_names(self, X):
 
@@ -619,6 +764,11 @@ class AutoMLEnv:
             .fillna(0)
         )
 
+        X = self._apply_clustering_features(
+            X,
+            fit=False
+        )
+
         X = self._sanitize_feature_names(X)
 
         for column in self.feature_columns:
@@ -695,12 +845,38 @@ class AutoMLEnv:
 
         df = self._feature_engineering(df)
 
+        features_only = df.drop(
+            columns=[self.target_column],
+            errors="ignore"
+        )
+
+        features_only = self._apply_clustering_features(
+            features_only,
+            fit=True
+        )
+
+        df = pd.concat(
+            [
+                features_only,
+                df[[self.target_column]]
+            ],
+            axis=1
+        )
+
         df = self._remove_leakage(df)
 
         y = df[self.target_column]
 
+        # CLUSTERING
+        if self.task_type == "clustering":
+
+            y = pd.Series(
+                np.zeros(len(df), dtype=int),
+                index=df.index
+            )
+
         # CLASSIFICATION
-        if self.task_type == "classification":
+        elif self.task_type == "classification":
 
             # НЕ ДЕЛАТЬ fillna("missing")
             y = y.astype(str)
@@ -1251,7 +1427,8 @@ class AutoMLEnv:
             "lightgbm",
             "catboost",
             "random_forest",
-            "hist_gb"
+            "hist_gb",
+            "kmeans"
         ]
 
         untested_models = [
@@ -1276,7 +1453,7 @@ class AutoMLEnv:
             ),
             self._checklist_item(
                 "task_type_detected",
-                self.task_type in ["classification", "regression"],
+                self.task_type in ["classification", "regression", "clustering"],
                 f"Detected task type: {self.task_type}."
             ),
             self._checklist_item(
@@ -1298,6 +1475,12 @@ class AutoMLEnv:
                 "feature_engineering_applied",
                 True,
                 "Added squared features for first numeric columns."
+            ),
+            self._checklist_item(
+                "clustering_features_added",
+                True,
+                f"Cluster features added using KMeans: {list(self.cluster_models.keys())}",
+                "info"
             ),
             self._checklist_item(
                 "leakage_columns_checked",
@@ -1536,6 +1719,175 @@ class AutoMLEnv:
             )
 
             action["model"] = model_name
+
+            if self.task_type == "clustering":
+
+                start_time = time.time()
+
+                numeric_X = (
+                    self.X
+                    .select_dtypes(include=np.number)
+                    .fillna(0)
+                )
+
+                if numeric_X.shape[1] < 2:
+                    raise ValueError(
+                        "Clustering requires at least two numeric features after preprocessing."
+                    )
+
+                scaler = StandardScaler()
+                scaled = scaler.fit_transform(numeric_X)
+
+                best_labels = None
+                best_model = None
+                best_score = -float("inf")
+                best_n_clusters = None
+
+                for n_clusters in [3, 5, 8]:
+
+                    if len(numeric_X) <= n_clusters:
+                        continue
+
+                    cluster_model = KMeans(
+                        n_clusters=n_clusters,
+                        random_state=42,
+                        n_init=10
+                    )
+
+                    labels = cluster_model.fit_predict(
+                        scaled
+                    )
+
+                    if len(np.unique(labels)) < 2:
+                        continue
+
+                    score = float(
+                        silhouette_score(
+                            scaled,
+                            labels
+                        )
+                    )
+
+                    if score > best_score:
+                        best_score = score
+                        best_labels = labels
+                        best_model = cluster_model
+                        best_n_clusters = n_clusters
+
+                if best_model is None:
+                    raise ValueError(
+                        "Could not build a valid clustering model."
+                    )
+
+                self.cluster_scaler = scaler
+                self.cluster_models = {
+                    best_n_clusters: best_model
+                }
+                self.best_model_object = best_model
+                self.best_model_name = "kmeans"
+                self.best_score = best_score
+
+                training_time = time.time() - start_time
+
+                token_cost = int(
+                    action
+                    .get("_token_info", {})
+                    .get("total_tokens", 0)
+                )
+
+                response_cost = int(
+                    action
+                    .get("_token_info", {})
+                    .get("response_tokens", 0)
+                )
+
+                compute_cost = float(
+                    training_time * 10
+                    + 10
+                )
+
+                self.total_compute_cost = min(
+                    self.compute_budget,
+                    self.total_compute_cost + compute_cost
+                )
+
+                self.total_token_cost += token_cost
+
+                candidate_id = len(self.candidates)
+
+                result = {
+                    "success": True,
+                    "candidate_id": candidate_id,
+                    "reward": best_score,
+                    "val_score": best_score,
+                    "objective_value": best_score,
+                    "selection_score": best_score,
+                    "selection_criterion": "silhouette",
+                    "cv_std": 0.0,
+                    "train_score": best_score,
+                    "overfit_gap": 0.0,
+                    "training_time_sec": float(training_time),
+                    "compute_cost": compute_cost,
+                    "token_cost": token_cost,
+                    "response_cost": response_cost,
+                    "total_compute_cost": float(self.total_compute_cost),
+                    "total_token_cost": int(self.total_token_cost),
+                    "remaining_budget": float(
+                        max(0, self.compute_budget - self.total_compute_cost)
+                    ),
+                    "compute_budget": float(self.compute_budget),
+                    "token_budget": int(self.token_budget),
+                    "remaining_tokens": int(
+                        max(0, self.token_budget - self.total_token_cost)
+                    ),
+                    "token_usage_ratio": float(
+                        min(1.0, self.total_token_cost / max(1, self.token_budget))
+                    ),
+                    "step_token_usage_ratio": float(
+                        min(1.0, token_cost / max(1, self.token_budget))
+                    ),
+                    "num_rows": int(len(self.df)),
+                    "num_features": int(self.X.shape[1]),
+                    "best_score": float(best_score),
+                    "best_model": "kmeans",
+                    "task_type": self.task_type,
+                    "metric": "silhouette",
+                    "requested_metric": self.requested_metric,
+                    "n_clusters": int(best_n_clusters),
+                    "cluster_counts": {
+                        str(label): int(count)
+                        for label, count in zip(
+                            *np.unique(best_labels, return_counts=True)
+                        )
+                    },
+                    "leakage_columns_removed": self.leakage_columns_removed,
+                    "feature_importance": {}
+                }
+
+                self.best_objective = best_score
+                self.best_candidate_id = candidate_id
+                self.best_action = action
+
+                result["checklist"] = self._build_checklist_feedback(
+                    action=action,
+                    model_name="kmeans",
+                    raw_params=dict(action.get("params", {}) or {}),
+                    sanitized_params={},
+                    validation_result=result
+                )
+
+                self.candidates.append({
+                    "candidate_id": candidate_id,
+                    "action": action,
+                    "observation": result
+                })
+
+                self.history.append({
+                    "action": action,
+                    "observation": result
+                })
+
+                return result
 
             recent_models = []
 
@@ -1860,6 +2212,38 @@ class AutoMLEnv:
             raise RuntimeError(
                 "No successful model was trained."
             )
+
+        if self.task_type == "clustering":
+
+            if test_path:
+                raw_test = self._read_csv_safely(
+                    test_path
+                )
+
+                X_submit = self.prepare_external_features(
+                    raw_test
+                )
+
+            else:
+                X_submit = self.X.copy()
+
+            numeric_X = (
+                X_submit
+                .select_dtypes(include=np.number)
+                .fillna(0)
+            )
+
+            scaled = self.cluster_scaler.transform(
+                numeric_X
+            )
+
+            labels = self.best_model_object.predict(
+                scaled
+            )
+
+            return pd.DataFrame({
+                "cluster": labels
+            })
 
         if test_path:
             raw_test = self._read_csv_safely(
