@@ -480,6 +480,26 @@ button:hover{
                 ></textarea>
 
                 <label>
+                    Run mode
+                </label>
+
+                <select name="run_mode">
+
+                    <option value="feedback">
+                        Feedback loop
+                    </option>
+
+                    <option value="single_shot">
+                        Single shot
+                    </option>
+
+                </select>
+
+                <div class="hint">
+                    Single shot sends one prompt without environment feedback.
+                </div>
+
+                <label>
                     Steps
                 </label>
 
@@ -658,6 +678,18 @@ button:hover{
 
                     <div id="model-state">
                         IDLE
+                    </div>
+
+                </div>
+
+                <div>
+
+                    <div class="status-muted">
+                        Run mode
+                    </div>
+
+                    <div id="run-mode">
+                        feedback
                     </div>
 
                 </div>
@@ -1309,6 +1341,14 @@ async function fetchState(){
         "model-state"
     ).innerText =
         data.model_state || "IDLE";
+
+    document
+    .getElementById(
+        "run-mode"
+    ).innerText =
+        data.run_mode || "feedback";
+
+
 
     updateProgress(
         data.progress || 0

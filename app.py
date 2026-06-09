@@ -50,6 +50,7 @@ def load_state():
             "submission_file": None,
             "model_state": "IDLE",
             "llm_comparison": [],
+            "run_mode": run_mode,
             "is_running": False
         }
 
@@ -66,6 +67,9 @@ def load_state():
 
     if "model_state" not in data:
         data["model_state"] = "IDLE"
+
+    if "run_mode" not in data:
+        data["run_mode"] = "feedback"
 
     return data
 
@@ -172,6 +176,73 @@ JSON format:
 """
 
 
+
+def build_single_shot_prompt(
+    user_comment,
+    metric,
+    remaining_budget,
+    remaining_tokens,
+    agent_name=None,
+    compare_mode=False
+):
+    return f"""
+You are an AutoML agent for tabular data.
+
+Run mode:
+SINGLE SHOT
+
+You have exactly one request.
+There will be no feedback loop and no previous experiment history.
+Choose one strong model configuration immediately.
+
+Metric:
+{metric}
+
+Remaining compute budget:
+{remaining_budget}
+
+Remaining token budget:
+{remaining_tokens}
+
+User comment:
+{user_comment}
+
+Agent name:
+{agent_name or "single_agent"}
+
+Comparison mode:
+{compare_mode}
+
+Allowed models:
+- xgboost
+- lightgbm
+- catboost
+- random_forest
+- hist_gb
+
+Rules:
+1. Return ONLY JSON.
+2. Keep response short.
+3. Do not explain.
+4. Do not use markdown.
+5. Do not use code blocks.
+6. Return JSON under 80 tokens.
+7. Use only allowed model names.
+
+JSON format:
+
+{{
+    "action": "train",
+    "model": "lightgbm",
+    "params": {{
+        "max_depth": 5,
+        "n_estimators": 120,
+        "learning_rate": 0.05
+    }}
+}}
+"""
+
+
 def make_run_stats(result, env, step):
     return {
         "total_compute_cost": result.get("total_compute_cost"),
@@ -262,7 +333,8 @@ def run_automl(
     user_comment,
     steps,
     llm_model,
-    metric
+    metric,
+    run_mode="feedback"
 ):
     logs = ""
 
@@ -271,6 +343,9 @@ def run_automl(
 
         llm_models = parse_llm_models(llm_model)
         compare_mode = len(llm_models) > 1
+
+        if run_mode == "single_shot":
+            steps = 1
 
         llm_comparison = [
             empty_agent_summary(model_name)
@@ -286,6 +361,7 @@ def run_automl(
             "submission_file": None,
             "model_state": "EDA",
             "llm_comparison": llm_comparison,
+            "run_mode": run_mode,
             "is_running": True
         })
 
@@ -300,6 +376,7 @@ def run_automl(
 
             logs += "\n====================\n"
             logs += f"LLM AGENT {agent_index + 1}/{len(llm_models)}: {current_llm_model}\n"
+            logs += f"RUN MODE: {run_mode}\n"
             logs += "====================\n"
 
             save_state({
@@ -353,16 +430,26 @@ def run_automl(
                     "is_running": True
                 })
 
-                prompt = build_prompt(
-                    best_selection_score,
-                    env.history,
-                    user_comment,
-                    metric,
-                    max(0, env.compute_budget - env.total_compute_cost),
-                    max(0, env.token_budget - env.total_token_cost),
-                    agent_name=current_llm_model,
-                    compare_mode=compare_mode
-                )
+                if run_mode == "single_shot":
+                    prompt = build_single_shot_prompt(
+                        user_comment,
+                        metric,
+                        max(0, env.compute_budget - env.total_compute_cost),
+                        max(0, env.token_budget - env.total_token_cost),
+                        agent_name=current_llm_model,
+                        compare_mode=compare_mode
+                    )
+                else:
+                    prompt = build_prompt(
+                        best_selection_score,
+                        env.history,
+                        user_comment,
+                        metric,
+                        max(0, env.compute_budget - env.total_compute_cost),
+                        max(0, env.token_budget - env.total_token_cost),
+                        agent_name=current_llm_model,
+                        compare_mode=compare_mode
+                    )
 
                 action = agent.act(prompt)
 
@@ -547,6 +634,7 @@ def run_automl(
             "run_stats": global_run_stats,
             "submission_file": global_submission_file,
             "llm_comparison": llm_comparison,
+            "run_mode": run_mode,
             "is_running": False
         })
 
@@ -563,6 +651,7 @@ def run_automl(
             "run_stats": {},
             "submission_file": None,
             "llm_comparison": [],
+            "run_mode": run_mode,
             "is_running": False
         })
 
@@ -589,6 +678,11 @@ def start():
     target = request.form["target"]
     comment = request.form.get("comment", "")
     steps = int(request.form.get("steps", 5))
+    run_mode = request.form.get("run_mode", "feedback")
+
+    if run_mode == "single_shot":
+        steps = 1
+
     llm_models = request.form.getlist("llm_model")
 
     if not llm_models:
@@ -633,7 +727,8 @@ def start():
             comment,
             steps,
             llm_model,
-            metric
+            metric,
+            run_mode
         ),
         daemon=True
     )
